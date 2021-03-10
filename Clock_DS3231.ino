@@ -1,3 +1,10 @@
+/**
+   Author: Colin Bernstein
+   Title: LED Wall Clock (DS3231 Compatible)
+*/
+
+
+//Define GPIO pins and frequently used instance variables
 #include <Time.h>
 #include <TimeLib.h>
 #include <DS3232RTC.h>
@@ -9,7 +16,9 @@
 DS3231 Clock;
 
 const byte a = 2, b = 3, c = 4, d = 5, e = 6, f = 7, g = 8,
-           decimal = 9, FOOSpin = 11, dayLightSavingsButton = 12, /*inH = 10, inM = 12, inS = 13,*/ tempPin = A0, celciusPin = A1;
+           decimal = 9, FOOSpin = 11, dayLightSavingsButton = 12, tempPin = A0, celciusPin = A1;
+
+//Define the 7-segment animations for all 10 numbers, F, C, -, and the ° symbol
 const boolean BCD[14][7] = {
   {1, 1, 1, 1, 1, 1, 0}, {0, 1, 1, 0, 0, 0, 0}, {1, 1, 0, 1, 1, 0, 1},
   {1, 1, 1, 1, 0, 0, 1}, {0, 1, 1, 0, 0, 1, 1}, {1, 0, 1, 1, 0, 1, 1},
@@ -22,6 +31,7 @@ int temp, cycle;
 unsigned long timeStampedTime;
 boolean timeTemp, celcius = false, AMPM, timeStamped = false, dayLightSavings = false; //true = +1 hour
 
+//Initialize the I2C busses, the RTC, and the GPIO modes
 void setup() {
   Wire.begin();
   pinMode(a, OUTPUT);
@@ -33,22 +43,22 @@ void setup() {
   pinMode(g, OUTPUT);
   pinMode(decimal, OUTPUT);
   pinMode(FOOSpin, OUTPUT);
-  //pinMode(inH, INPUT_PULLUP);
-  //pinMode(inM, INPUT_PULLUP);
-  //pinMode(inS, INPUT_PULLUP);
-  //pinMode(celciusPin, INPUT_PULLUP);
   pinMode(dayLightSavingsButton, INPUT_PULLUP);
   pinMode(tempPin, INPUT);
   //setDS3231time(15, 31, 10, 7, 23, 4, 17);  // seconds, minutes, hours, day, date, month, year
   RTC.squareWave(SQWAVE_1_HZ);
   delay(10);
 }
+
+//Constantly multiplex at a rate that is invisible but still looks bright
+//Constantly check for daylight savings to be toggled
 void loop() {
   multPlex();
-  if(digitalRead(dayLightSavingsButton))
+  if (digitalRead(dayLightSavingsButton))
     dayLightSavings = !dayLightSavings;
 }
 
+//Set the current time of the DS3231
 void setDS3231time(byte second, byte minute, byte hour, byte dayOfWeek, byte
                    dayOfMonth, byte month, byte year) {
   Wire.beginTransmission(DS3231_I2C_ADDRESS);
@@ -63,6 +73,7 @@ void setDS3231time(byte second, byte minute, byte hour, byte dayOfWeek, byte
   Wire.endTransmission();
 }
 
+//Read the current time from the DS3231
 void readDS3231time(byte * second, byte * minute, byte * hour, byte * dayOfWeek, byte * dayOfMonth, byte * month, byte * year) {
   Wire.beginTransmission(DS3231_I2C_ADDRESS);
   Wire.write(0);
@@ -77,29 +88,36 @@ void readDS3231time(byte * second, byte * minute, byte * hour, byte * dayOfWeek,
   *year = bcdToDec(Wire.read());
 }
 
+//Mark a time stamp in milliseconds
 void stamp() {
   timeStamped = true;
   timeStampedTime = millis();
 }
 
+//Pulse the decade counter to proceed to the next digit
 void FOOS() {
   digitalWrite(FOOSpin, HIGH);
   digitalWrite(FOOSpin, LOW);
 }
 
+//Blank a digit
 void off() {
   for (int i = 2; i < 10; i++)
     digitalWrite(i, LOW);
 }
+
+//Display a BCD numeral on a digit
 void displayNum(byte num) {
   for (int x = 0; x < 7; x++)
     digitalWrite(x + 2, BCD[num][x]);
 }
 
+//Return the binary value of a decimal digit 
 byte decToBcd(byte val) {
   return ( (val / 10 * 16) + (val % 10) );
 }
 
+//Return the decimal value of a binary number
 byte bcdToDec(byte val) {
   return ( (val / 16 * 10) + (val % 16) );
 }
@@ -111,6 +129,7 @@ byte bcdToDec(byte val) {
     else if (mO == 11)
     }*/
 
+//Flash the value of every corresponding digit instantaneously
 void multPlex() {
   byte s, m, h, dW, dM, mO, y, lastSec;
   readDS3231time(&s, &m, &h, &dW, &dM, &mO, &y);

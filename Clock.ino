@@ -1,28 +1,40 @@
+/**
+   Author: Colin Bernstein
+   Title: LED Wall Clock
+*/
+
+
+//Define GPIO pins and frequently used instance variables
+const byte a = 2, b = 3, c = 4, d = 5, e = 6, f = 7, g = 8,
+           decimal = 9, colon = 10, FOOSpin = 11, inH = A2, inM = 12, inS = 13, tempPin = A0, celciusPin = A1;
+byte stage;
+boolean time = true, celcius = false;
+float tempF;
+unsigned long curr;
 #include <Wire.h>
 #include "RTClib.h"
-#define DS1307_I2C_ADDRESS 0x68
-const byte a = 2, b = 3, c = 4, d = 5, e = 6, f = 7, g = 8,
-           decimal = 9, FOOSpin = 11, inH = 10, inM = 12, inS = 13, tempPin = A0, celciusPin = A1;
-const boolean BCD[14][7] = {
-  {1, 1, 1, 1, 1, 1, 0}, {0, 1, 1, 0, 0, 0, 0}, {1, 1, 0, 1, 1, 0, 1},
+RTC_DS1307 RTC;
+DateTime now;
+
+//Define the 7-segment animations for all 10 numbers, F, C, -, and the ° symbol
+byte BCD[14][7] = {{1, 1, 1, 1, 1, 1, 0}, {0, 1, 1, 0, 0, 0, 0}, {1, 1, 0, 1, 1, 0, 1},
   {1, 1, 1, 1, 0, 0, 1}, {0, 1, 1, 0, 0, 1, 1}, {1, 0, 1, 1, 0, 1, 1},
   {1, 0, 1, 1, 1, 1, 1}, {1, 1, 1, 0, 0, 0, 0}, {1, 1, 1, 1, 1, 1, 1},
   {1, 1, 1, 0, 0, 1, 1}, {1, 0, 0, 0, 1, 1, 1}, {1, 0, 0, 1, 1, 1, 0},
   {0, 0, 0, 0, 0, 0, 1}, {1, 1, 0, 0, 0, 1, 1}
 }; //0123456789FC-°
-volatile byte stage;
-volatile int temp, cycle;
-volatile float tempReading;
-uint32_t timeStampTime;
-boolean timeTemp = true, celcius = false, AMPM = true, timeStamp = false;
-RTC_DS1307 RTC;
-DateTime now1;
 
+//Initialize the I2C busses, the RTC, and the GPIO modes
 void setup() {
   analogReference(INTERNAL);
-  //Serial.begin(9600);
+  Serial.begin(9600);
   Wire.begin();
   RTC.begin();
+  if (! RTC.isrunning()) {
+    Serial.println("RTC is NOT running!");
+    // following line sets the RTC to the date & time this sketch was compiled
+    RTC.adjust(DateTime(__DATE__, __TIME__));
+  }
   pinMode(a, OUTPUT);
   pinMode(b, OUTPUT);
   pinMode(c, OUTPUT);
@@ -30,157 +42,120 @@ void setup() {
   pinMode(e, OUTPUT);
   pinMode(f, OUTPUT);
   pinMode(g, OUTPUT);
-  pinMode(decimal, OUTPUT);
+  pinMode(colon, OUTPUT);
   pinMode(FOOSpin, OUTPUT);
   pinMode(inH, INPUT_PULLUP);
   pinMode(inM, INPUT_PULLUP);
   pinMode(inS, INPUT_PULLUP);
   pinMode(celciusPin, INPUT_PULLUP);
   pinMode(tempPin, INPUT);
-  // RTC.adjust(DateTime(__DATE__, __TIME__));
-  Wire.beginTransmission(DS1307_I2C_ADDRESS);
-  Wire.write(0x07); // move pointer to SQW address
-  Wire.write(0x10); // sends 0x10 (hex) 00010000 (binary)
-  Wire.endTransmission();
-  delay(10);
 }
+
+//Constantly multiplex at a rate that is invisible but still looks bright
 void loop() {
-  multPlex();
-  if (cycle % 100 == 0)
-    tempReading = ((analogRead(tempPin) / 1024.0) * 5000.0 / 10.0);
-  if (!timeStamp && timeTemp && cycle == 5000)
-    timeTemp = false;
-  else if (!timeTemp && cycle == 2000)
-    timeTemp = true;
-  if (cycle == 5000)
-    cycle = 0;
-  else
-    cycle++;
-  if (timeStamp && now1.unixtime() - timeStampTime >= 5) //This line is faulty
-    timeStamp = false;
+  multPlex(1);
+  delayMicroseconds(1);
 }
 
-void stamp() {
-  timeStamp = true;
-  timeStampTime = now1.unixtime();
+//Adjust the RTC's stored time based off of an incoming button press
+void button() {
+  now = RTC.now();
+  boolean H = !(boolean) digitalRead(inH), M = !(boolean) digitalRead(inM), S = !(boolean) digitalRead(inS);
+  if (H == HIGH)
+    RTC.adjust(DateTime("APR 15 2016", "12:59:45"));
+  else if (M == HIGH)
+    setTime(now.hour(), now.minute() + 1, now.second(), now.day(), now.month(), now.year());
+  else if (S == HIGH)
+    setTime(now.hour(), now.minute(), now.second() + 1, now.day(), now.month(), now.year());
 }
 
+//Pulse the decade counter to proceed to the next digit
 void FOOS() {
   digitalWrite(FOOSpin, HIGH);
   digitalWrite(FOOSpin, LOW);
 }
 
-void off() {
-  digitalWrite(a, LOW);
-  digitalWrite(b, LOW);
-  digitalWrite(c, LOW);
-  digitalWrite(d, LOW);
-  digitalWrite(e, LOW);
-  digitalWrite(f, LOW);
-  digitalWrite(g, LOW);
-  digitalWrite(decimal, LOW);
-}
-void displayNum(byte num) {
-  for (int x = 0; x < 7; x++)
-    digitalWrite(x + 2, BCD[num][x]);
-}
-
-void multPlex() {
-  now1 = RTC.now();
-  off();
-  FOOS();
+//Flash the value of every corresponding digit instantaneously
+void multPlex(float temp) {
+  now = RTC.now();
   if (stage < 5)
     stage++;
   else
     stage = 0;
-  AMPM = now1.hour() >= 12 ? false : true;
-  if (timeTemp)
+  if (true)
   {
-    if (cycle % 200 == 0)
-    {
-      if (!(boolean) digitalRead(inH))
-      {
-        stamp();
-        RTC.adjust(now1.unixtime() + 3600);
-      }
-      else if (!(boolean) digitalRead(inM))
-      {
-        stamp();
-        if (now1.minute() == 59)
-          RTC.adjust(now1.unixtime() - 3540);
-        else
-          RTC.adjust(now1.unixtime() + 60);
-      }
-      else if (!(boolean) digitalRead(inS))
-      {
-        stamp();
-        if (now1.second() == 59)
-          RTC.adjust(now1.unixtime() - 59);
-        else
-          RTC.adjust(now1.unixtime() + 1);
-      }
-    }
     if (stage == 0)
-      if ((now1.hour() == 0 || (now1.hour() > 9 && now1.hour() < 13) || now1.hour() > 21))
-        displayNum(1);
+    {
+      digitalWrite(silence, LOW);
+      FOOS();
+      digitalWrite(silence, HIGH);
+      if (hours / 10 == 1)
+        displayNum(now.hour() / 10);
       else
-        off();
+        digitalWrite(silence, LOW);
+    }
     else if (stage == 1)
     {
-      if (now1.hour() <= 12)
-        if (now1.hour() == 0)
-          displayNum(2);
-        else
-          displayNum(now1.hour() % 10);
-      else
-        displayNum((now1.hour() - 12) % 10);
-      if (!AMPM)
-        digitalWrite(decimal, HIGH);
+      digitalWrite(silence, LOW);
+      FOOS();
+      digitalWrite(silence, HIGH);
+      displayNum(now.hour() % 10);
     }
     else if (stage == 2)
-      displayNum(now1.minute() / 10);
+    {
+      digitalWrite(silence, LOW);
+      FOOS();
+      digitalWrite(silence, HIGH);
+      displayNum(now.minute() / 10);
+
+    }
     else if (stage == 3)
-      displayNum(now1.minute() % 10);
+    {
+      digitalWrite(silence, LOW);
+      FOOS();
+      digitalWrite(silence, HIGH);
+      displayNum(now.minute() % 10);
+    }
     else if (stage == 4)
-      displayNum(now1.second() / 10);
+    {
+      digitalWrite(silence, LOW);
+      FOOS();
+      digitalWrite(silence, HIGH);
+      displayNum(now.second() / 10);
+    }
     else if (stage == 5)
-      displayNum(now1.second() % 10);
+    {
+      digitalWrite(silence, LOW);
+      FOOS();
+      digitalWrite(silence, HIGH);
+      displayNum(now.second() % 10);
+    }
   }
   else
   {
-    if (!(boolean) digitalRead(celciusPin) && cycle % 100 == 0)
-      celcius = !celcius;
-    if (celcius)
-      temp = tempReading * 10;
-    else
-      temp = (((tempReading * 9 ) / 5) + 32 ) * 10;
-    byte digits;
-    if (temp >= 1000 || temp <= -100)
-      digits = 4;
-    else if (temp >= 100 || temp <= -10)
-      digits = 3;
     if (stage == 5)
+    {
+      digitalWrite(silence, LOW);
+      FOOS();
+      digitalWrite(silence, HIGH);
       if (celcius)
         displayNum(11);
       else
         displayNum(10);
-    else if (stage == 4)
-      displayNum(13);
-    else if (stage == 3)
-      displayNum(temp % 10);
-    else if (stage == 2)
-    {
-      digitalWrite(decimal, HIGH);
-      displayNum(temp % 100 / 10);
     }
-    else if (stage == 1)
-      if (digits >= 3)
-        displayNum(temp % 1000 / 100);
-      else if (stage == 0)
-        if (digits == 4)
-          if (temp >= 0)
-            displayNum(temp / 1000);
-          else
-            displayNum(12);
+    else if (stage == 4)
+    {
+      digitalWrite(silence, LOW);
+      FOOS();
+      digitalWrite(silence, HIGH);
+      displayNum(temp % 10);
+    }
   }
+}
+
+//Write a BCD number to the cathode controlling chip
+void displayNum(byte num)
+{
+  for (int x = 1; x < 8; x++)
+    digitalWrite(x + 3, (boolean) BCD[num][x]);
 }
